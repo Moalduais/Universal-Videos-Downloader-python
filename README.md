@@ -34,6 +34,7 @@ Open your terminal or command prompt and install the required UI and downloading
 pip install customtkinter yt-dlp pillow pyinstaller
 3. FFmpeg (Crucial for High Definition & Merging)
 Because platforms like YouTube separate high-definition video and audio streams, FFmpeg is required to merge them.
+Download link: https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-2026-09-24-git-5253641e62-full_build.7z
 
 Download FFmpeg for Windows (e.g., from Gyan.dev or official builds).
 
@@ -45,30 +46,33 @@ Place ffmpeg.exe directly into the same folder where your app.py script is saved
 Clone or Download the Repository:
 
 Bash
-git clone [https://github.com/YourUsername/your-repo-name.git](https://github.com/YourUsername/your-repo-name.git)
+git clone https://github.com/Moalduais/Universal-Videos-Downloader-python.git
 Navigate to the Project Folder:
 
 Bash
-cd your-repo-name
+cd Universal-Videos-Downloader-python
 Ensure FFmpeg is Present:
-Verify that ffmpeg.exe is sitting right next to app.py.
+Verify that ffmpeg is installed into the machine by:
+ffmpeg --version
 
 Run the Script:
 
 Bash
-python app.py
+python UVDv2_updated.py
 📦 Building into a Standalone Windows .exe
 If you want to package this application into an executable file that can run on any Windows machine without requiring Python installed:
 
 Open your command prompt in the project directory.
 
+insure PyInstaller is installed:
+pyinstaller --version
+
 Run the PyInstaller bundling command:
 
 Bash
-pyinstaller --noconsole --onefile --collect-all customtkinter app.py
+pyinstaller --noconsole --onefile --icon=icon.ico UVDv2_updated.py
 Once the compilation finishes, open the newly generated dist folder.
 
-Important: Copy your ffmpeg.exe file and paste it directly into the dist folder right next to your new app.exe.
 
 You can now zip the dist folder contents and share your application anywhere!
 
