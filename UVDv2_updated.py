@@ -131,8 +131,12 @@ class VideoDownloaderApp(ctk.CTk):
         super().__init__()
 
         self.title("Universal Video Downloader")
-        self.geometry("600x520")  # Slightly taller to fit the history button
+        self.geometry("600x520")
         self.resizable(False, False)
+        
+        icon_path = os.path.join(BASE_DIR, "icon.ico")
+        if os.path.exists("icon.ico"):
+            self.iconbitmap("icon.ico")
 
         self.download_path = os.path.join(os.path.expanduser("~"), "Downloads")
         self.formats_dict = {}
@@ -168,7 +172,7 @@ class VideoDownloaderApp(ctk.CTk):
         self.video_title_label.pack(anchor="w", padx=10, pady=(10, 5))
 
         # Quality Selection OptionMenu
-        self.quality_label = ctk.CTkLabel(self.info_frame, text="Select Quality (Size included):")
+        self.quality_label = ctk.CTkLabel(self.info_frame, text="Select Quality / Format:")
         self.quality_label.pack(anchor="w", padx=10, pady=(5, 0))
 
         self.quality_option = ctk.CTkOptionMenu(self.info_frame, values=["Fetch a video link first"])
@@ -187,7 +191,7 @@ class VideoDownloaderApp(ctk.CTk):
 
         # Download Button & Progress Bar
         self.download_btn = ctk.CTkButton(
-            self, text="Download Video", fg_color="green", hover_color="darkgreen", font=ctk.CTkFont(size=15, weight="bold"), command=self.start_download
+            self, text="Download", fg_color="green", hover_color="darkgreen", font=ctk.CTkFont(size=15, weight="bold"), command=self.start_download
         )
         self.download_btn.pack(pady=(10, 5))
 
@@ -222,121 +226,187 @@ class VideoDownloaderApp(ctk.CTk):
 
         self.status_label.configure(text="Fetching video details...")
         self.fetch_btn.configure(state="disabled")
+        
         threading.Thread(target=self.fetch_info_thread, args=(url,), daemon=True).start()
 
     def fetch_info_thread(self, url):
-        ydl_opts = {'quiet': True, 'no_warnings': True}
+        ydl_opts = {
+            'quiet': True, 
+            'no_warnings': True,
+            'noplaylist': True,
+            'socket_timeout': 15 
+        }
+        
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
                 title = info.get('title', 'Unknown Title')
 
-                self.formats_dict = {}
-                formats = info.get('formats', [])
+            self.formats_dict = {}
+            formats = info.get('formats', [])
+            
+            # Extract file sizes and map by resolution
+            best_audio_size = 0
+            for f in formats:
+                if f.get('vcodec') == 'none' and f.get('acodec') != 'none':
+                    size = f.get('filesize') or f.get('filesize_approx') or 0
+                    if size > best_audio_size:
+                        best_audio_size = size
+            
+            temp_resolutions = {}
+            for f in formats:
+                height = f.get('height')
+                ext = f.get('ext', 'mp4')
+                if height and f.get('vcodec') != 'none' and ext == 'mp4':
+                    video_size = f.get('filesize') or f.get('filesize_approx') or 0
+                    total_bytes = video_size + best_audio_size
+                    if height not in temp_resolutions or total_bytes > temp_resolutions[height]['bytes']:
+                        temp_resolutions[height] = {'bytes': total_bytes, 'ext': ext}
+
+            options = []
+            
+            # Generate Video Options
+            for height, data in sorted(temp_resolutions.items(), reverse=True):
+                size_mb = data['bytes'] / (1024 * 1024)
+                size_str = f"~{size_mb:.1f} MB" if size_mb > 0 else "Size Unknown"
+                label = f"{height}p ({data['ext']}) - {size_str}"
                 
-                # Extract file sizes and map by resolution
-                best_audio_size = 0
-                for f in formats:
-                    if f.get('vcodec') == 'none' and f.get('ext') == 'm4a':
-                        size = f.get('filesize') or f.get('filesize_approx') or 0
-                        if size > best_audio_size:
-                            best_audio_size = size
-                
-                temp_resolutions = {}
-                for f in formats:
-                    height = f.get('height')
-                    ext = f.get('ext', 'mp4')
-                    if height and f.get('vcodec') != 'none' and ext == 'mp4':
-                        video_size = f.get('filesize') or f.get('filesize_approx') or 0
-                        total_bytes = video_size + best_audio_size
-                        if height not in temp_resolutions or total_bytes > temp_resolutions[height]['bytes']:
-                            temp_resolutions[height] = {'bytes': total_bytes, 'ext': ext}
+                # Save both the format string AND the type to know how to process it later
+                self.formats_dict[label] = {
+                    'format': f"bestvideo[ext=mp4][height<={height}]+bestaudio[ext=m4a]/best[ext=mp4][height<={height}]/best",
+                    'type': 'video'
+                }
+                options.append(label)
 
-                for height, data in sorted(temp_resolutions.items(), reverse=True):
-                    size_mb = data['bytes'] / (1024 * 1024)
-                    size_str = f"~{size_mb:.1f} MB" if size_mb > 0 else "Size Unknown"
-                    label = f"{height}p ({data['ext']}) - {size_str}"
-                    self.formats_dict[label] = f"bestvideo[ext=mp4][height<={height}]+bestaudio[ext=m4a]/best[ext=mp4][height<={height}]/best"
+            # Fallback if no specific video resolutions were found
+            if not options:
+                options = ["Best Available Video Quality"]
+                self.formats_dict["Best Available Video Quality"] = {
+                    'format': "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+                    'type': 'video'
+                }
 
-                options = list(self.formats_dict.keys())
-                if not options:
-                    options = ["Best Available Quality"]
-                    self.formats_dict["Best Available Quality"] = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+            # Generate Audio-Only Option
+            audio_mb = best_audio_size / (1024 * 1024)
+            audio_str = f"~{audio_mb:.1f} MB" if audio_mb > 0 else "Size Unknown"
+            audio_label = f"Audio Only (mp3) - {audio_str}"
+            
+            self.formats_dict[audio_label] = {
+                'format': 'bestaudio/best',
+                'type': 'audio'
+            }
+            options.append(audio_label) # Add audio option to the bottom of the list
 
-                # Update UI
-                self.video_title_label.configure(text=f"Title: {title}")
-                self.quality_option.configure(values=options)
-                self.quality_option.set(options[0])
-                self.status_label.configure(text="Video details loaded successfully.")
-
-                # SAVE TO HISTORY
-                history = load_history()
-                found = False
-                for h in history:
-                    if h['url'] == url:
-                        h['title'] = title  # Update title if it changed
-                        found = True
-                        break
-                if not found:
-                    history.insert(0, {'title': title, 'url': url}) # Insert at the top of the list
-                save_history(history)
+            # Pass success back to Main Thread safely
+            self.after(0, self._finalize_fetch, url, title, options)
                 
         except Exception as e:
-            self.status_label.configure(text="Error fetching video details.")
-            messagebox.showerror("Error", f"Failed to fetch video details:\n{str(e)}")
-        finally:
-            self.fetch_btn.configure(state="normal")
+            self.after(0, self._handle_fetch_error, str(e))
+
+
+    # --- GUI Update Helpers for Thread Safety ---
+    def _finalize_fetch(self, url, title, options):
+        self.video_title_label.configure(text=f"Title: {title}")
+        self.quality_option.configure(values=options)
+        self.quality_option.set(options[0])
+        self.status_label.configure(text="Media details loaded successfully.")
+        self.fetch_btn.configure(state="normal")
+
+        history = load_history()
+        found = False
+        for h in history:
+            if h['url'] == url:
+                h['title'] = title  
+                found = True
+                break
+        if not found:
+            history.insert(0, {'title': title, 'url': url}) 
+        save_history(history)
+
+    def _handle_fetch_error(self, error_msg):
+        self.status_label.configure(text="Error fetching media details.")
+        self.fetch_btn.configure(state="normal")
+        messagebox.showerror("Error", f"Failed to fetch details:\n{error_msg}")
+
+    # --------------------------------------------
 
     def start_download(self):
         url = self.url_entry.get().strip()
         if not url:
-            messagebox.showwarning("Input Error", "Please paste a video URL.")
+            messagebox.showwarning("Input Error", "Please paste a URL.")
             return
 
         selected_quality = self.quality_option.get()
-        format_spec = self.formats_dict.get(selected_quality, "best")
+        selection_data = self.formats_dict.get(selected_quality)
 
         self.download_btn.configure(state="disabled")
         self.progress_bar.set(0)
         self.status_label.configure(text="Starting download...")
 
         threading.Thread(
-            target=self.download_thread, args=(url, format_spec), daemon=True
+            target=self.download_thread, args=(url, selection_data), daemon=True
         ).start()
 
-    def download_thread(self, url, format_spec):
+    def download_thread(self, url, selection_data):
         def progress_hook(d):
             if d['status'] == 'downloading':
                 total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
                 downloaded = d.get('downloaded_bytes', 0)
                 if total > 0:
                     percent = downloaded / total
-                    self.progress_bar.set(percent)
-                    self.status_label.configure(
-                        text=f"Downloading: {int(percent * 100)}% ({d.get('_speed_str', '').strip()})"
-                    )
+                    speed = d.get('_speed_str', '').strip()
+                    self.after(0, self._update_download_progress, percent, speed)
             elif d['status'] == 'finished':
-                self.progress_bar.set(1.0)
-                self.status_label.configure(text="Processing / Merging audio & video...")
+                self.after(0, self._update_download_finished)
+
+        # Figure out if we are downloading video or audio based on the dict
+        format_spec = selection_data['format'] if selection_data else 'best'
+        is_audio = selection_data['type'] == 'audio' if selection_data else False
 
         ydl_opts = {
             'format': format_spec,
             'outtmpl': os.path.join(self.download_path, '%(title)s.%(ext)s'),
             'progress_hooks': [progress_hook],
-            'merge_output_format': 'mp4',
-            'ffmpeg_location': r"C:\ffmpeg\bin\ffmpeg.exe" # Force it to look in the app's folder
+            'ffmpeg_location': r"C:\ffmpeg\bin\ffmpeg.exe" # Ensure this path is correct on your PC
         }
+
+        # Handle Audio extraction vs Video merging
+        if is_audio:
+            ydl_opts['postprocessors'] = [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': '192',
+            }]
+        else:
+            ydl_opts['merge_output_format'] = 'mp4'
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
-            self.status_label.configure(text="Download Complete!")
-            messagebox.showinfo("Success", "Video downloaded successfully!")
+            self.after(0, self._finalize_download, True, "")
         except Exception as e:
+            self.after(0, self._finalize_download, False, str(e))
+
+
+    # --- GUI Update Helpers for Thread Safety (Download) ---
+    def _update_download_progress(self, percent, speed):
+        self.progress_bar.set(percent)
+        self.status_label.configure(
+            text=f"Downloading: {int(percent * 100)}% ({speed})"
+        )
+
+    def _update_download_finished(self):
+        self.progress_bar.set(1.0)
+        self.status_label.configure(text="Processing / Converting format...")
+
+    def _finalize_download(self, success, error_msg):
+        self.download_btn.configure(state="normal")
+        if success:
+            self.status_label.configure(text="Download Complete!")
+            messagebox.showinfo("Success", "Media downloaded successfully!")
+        else:
             self.status_label.configure(text="Download failed.")
-            messagebox.showerror("Download Error", f"An error occurred during download:\n{str(e)}")
-        finally:
-            self.download_btn.configure(state="normal")
+            messagebox.showerror("Download Error", f"An error occurred during download:\n{error_msg}")
 
 
 if __name__ == "__main__":
