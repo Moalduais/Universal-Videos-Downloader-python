@@ -17,6 +17,7 @@ A modern, lightweight Windows desktop application built with Python that allows 
 * **In-App History Manager:** View, edit, delete, or reload past video links directly from a dedicated window inside the app.
 * **Modern Dark UI:** Clean, responsive user interface built using **CustomTkinter** with multithreading to prevent UI freezing during downloads.
 * **Automatic Stream Merging:** Automatically stitches high-definition video and audio streams together using FFmpeg into a universally playable `.mp4` file.
+* **Audio Only Download Optiond:** We add a new option to let the user to fetch the video link and download the audio only using FFmpeg as `.mp3` file.
 
 ---
 
